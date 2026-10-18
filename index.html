@@ -1,0 +1,120 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only · Copyright (C) 2026 koenig-arthur -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An offline workbench for understanding PID controllers, digital filters, plant dynamics and feedback.">
+  <title>Controller Lab · PID & Feedback</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="dsp.js"></script>
+  <script defer src="control.js"></script>
+  <script defer src="plots.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-icon" aria-hidden="true">↗</span>Controller Lab <span class="course">CONTROL SYSTEMS</span></a>
+    <span class="offline"><span></span>Runs entirely on your device</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">AN INTERACTIVE PID WORKBENCH</p><h1>Close the loop.</h1><p class="lede">Tune a gain. Add a filter. See how feedback changes everything.</p></div>
+      <div class="file-actions"><button id="export-experiment" class="button secondary">Export experiment</button><button id="import-experiment" class="button secondary">Import JSON</button><input id="experiment-file" type="file" accept=".json,application/json" hidden></div>
+    </section>
+    <section class="toolbar" aria-label="Experiment settings">
+      <label class="inline-label">Sampling rate <span class="input-unit"><input id="sample-rate" type="number" min="0" step="any" value="1000"><span>Hz</span></span></label>
+      <span id="sample-note" class="muted"></span>
+      <label class="inline-label">Duration <span class="input-unit"><input id="duration" type="number" min="0" step="0.1" value="1.2"><span>s</span></span></label>
+      <label class="inline-label preset-label">Experiment <select id="preset"></select></label><button id="reset-experiment" class="text-button">Reset experiment</button>
+    </section>
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+    <div class="workspace">
+      <aside class="editor card">
+        <div class="editor-heading"><span class="eyebrow">01 / BUILD YOUR LOOP</span><span class="live-tag">LIVE</span></div>
+        <div class="tabs" role="tablist" aria-label="Model editor">
+          <button id="tab-pid" role="tab" aria-selected="true" aria-controls="panel-pid" tabindex="0">PID</button>
+          <button id="tab-plant" role="tab" aria-selected="false" aria-controls="panel-plant" tabindex="-1">Plant</button>
+          <button id="tab-filters" role="tab" aria-selected="false" aria-controls="panel-filters" tabindex="-1">Filters</button>
+          <button id="tab-limits" role="tab" aria-selected="false" aria-controls="panel-limits" tabindex="-1">Limits</button>
+        </div>
+        <section id="panel-pid" class="panel" role="tabpanel" aria-labelledby="tab-pid">
+          <h2>Three terms. One controller.</h2><p class="help">Each gain acts independently. Set a gain to zero to remove that term.</p>
+          <div class="gain-row"><label for="kp"><span class="term-letter p">P</span> Proportional <span>Kp</span></label><input id="kp" type="number" step="0.1" value="1"><input id="kp-range" aria-label="Proportional gain slider" type="range" min="0" max="10" step="0.01" value="1"><p class="hint">React to the error now.</p></div>
+          <div class="gain-row"><label for="ki"><span class="term-letter i">I</span> Integral <span>Ki · s⁻¹</span></label><input id="ki" type="number" step="1" value="10"><input id="ki-range" aria-label="Integral gain slider" type="range" min="0" max="100" step="0.1" value="10"><p class="hint">Accumulate past error to remove offset.</p></div>
+          <div class="gain-row"><label for="kd"><span class="term-letter d">D</span> Derivative <span>Kd · s</span></label><input id="kd" type="number" step="0.001" value="0"><input id="kd-range" aria-label="Derivative gain slider" type="range" min="0" max="0.2" step="0.001" value="0"><p class="hint">Respond to how quickly the error changes.</p></div>
+          <label>Derivative smoothing <span class="input-unit"><input id="derivative-tau" type="number" min="0" step="1" value="10"><span>ms</span></span></label>
+          <p class="hint">A first-order filter on D only. Set to 0 for an unfiltered discrete derivative. Separate from the four signal filters.</p>
+          <details class="learn-detail"><summary>What do these gains mean?</summary><p>Parallel form: u = Kp·e + Ki·∫e dt + Kd·de/dt. Time is measured in seconds. Integration uses the previous error over each sample interval; D uses a backward difference. D acts on error, so a sudden setpoint change can cause a kick. Numeric fields also accept signed gains outside the slider range.</p></details>
+        </section>
+        <section id="panel-plant" class="panel" role="tabpanel" aria-labelledby="tab-plant" hidden>
+          <h2>The system you control</h2><p class="help">Start with physical parameters, or bring your own continuous or digital model.</p>
+          <label>Plant model<select id="plant-type"><option value="first">First-order lag</option><option value="second">Second-order damped</option><option value="integrator">Integrator</option><option value="unity">Static gain</option><option value="continuous">Custom G(s) · continuous</option><option value="discrete">Custom G(z) · digital</option></select></label>
+          <label id="plant-gain-field">Plant gain<input id="plant-gain" type="number" step="0.1" value="1"></label>
+          <label id="plant-tau-field">Time constant τ <span class="input-unit"><input id="plant-tau" type="number" min="0" step="10" value="100"><span>ms</span></span></label>
+          <div id="plant-second-fields" class="two-fields" hidden><label>Natural frequency · Hz<input id="plant-frequency" type="number" min="0" step="0.1" value="3"></label><label>Damping ratio ζ<input id="plant-damping" type="number" min="0" step="0.05" value="0.35"></label></div>
+          <form id="plant-coeff-form" hidden><p id="plant-coeff-help" class="hint"></p><label>Numerator<textarea id="plant-b" rows="2" spellcheck="false">1</textarea></label><label>Denominator<textarea id="plant-a" rows="2" spellcheck="false">0.1, 1</textarea></label><button class="button secondary full" type="submit">Apply plant coefficients</button></form>
+          <div class="section-rule"></div>
+          <label>Additional dead time <span class="input-unit"><input id="dead-time" type="number" min="0" step="1" value="0"><span>ms</span></span></label><p id="delay-note" class="hint"></p>
+          <div class="explain-box"><strong>Lag ≠ dead time</strong><p>A 100 ms time constant reaches 63.2% of the final value after 100 ms. A 100 ms dead time starts the response 100 ms later. Use both to model a slow system with transport delay.</p></div>
+          <details class="learn-detail"><summary>How is the plant sampled?</summary><p>Continuous models use an exact zero-order hold at the chosen sampling rate. The input is held between samples. Dead time is rounded to the nearest whole sample; its effective value is shown above. No hidden computational delay is added.</p></details>
+        </section>
+        <section id="panel-filters" class="panel" role="tabpanel" aria-labelledby="tab-filters" hidden>
+          <h2>Choose where to filter</h2><p class="help">The position matters: a setpoint filter shapes the target; filters inside feedback can change stability.</p>
+          <label>Filter position<select id="filter-slot"><option value="setpoint">Setpoint · before summation</option><option value="error">Error · before PID</option><option value="output">Output · after PID</option><option value="measurement">Measurement · feedback</option></select></label>
+          <label class="checkbox-label"><input id="filter-enabled" type="checkbox">Enable this filter</label><p id="filter-slot-note" class="hint"></p>
+          <label>Input method<select id="filter-method"><option value="iir">Design IIR · biquad</option><option value="fir">Design FIR · windowed sinc</option><option value="average">Moving average</option><option value="expression">Transfer function H(z)</option><option value="equation">Difference equation</option><option value="coefficients">Coefficient lists</option></select></label>
+          <form id="filter-form" novalidate>
+            <div id="filter-design-fields"><label id="filter-type-field">Response<select id="filter-type"><option value="lowpass">Low-pass</option><option value="highpass">High-pass</option><option value="bandpass">Band-pass</option><option value="notch">Notch / band-stop</option></select></label><label id="filter-frequency-field">Frequency · Hz<input id="filter-frequency" type="number" min="0" step="1" value="20"></label><label id="filter-upper-field" hidden>Upper frequency · Hz<input id="filter-upper" type="number" min="0" step="1" value="40"></label><label id="filter-q-field">Q · sharpness<input id="filter-q" type="number" min="0" step="0.05" value="0.7071067811865476"></label><label id="filter-taps-field" hidden>Length · samples<input id="filter-taps" type="number" min="1" max="65" step="1" value="15"></label></div>
+            <div id="filter-expression-fields" hidden><label>H(z) =<textarea id="filter-expression" rows="4" spellcheck="false">0.1/(1-0.9*z^-1)</textarea></label><p class="hint">Use explicit * and powers of z. For example (1+z^-1)/2.</p></div>
+            <div id="filter-equation-fields" hidden><label>Difference equation<textarea id="filter-equation" rows="6" spellcheck="false">y[n] = 0.96585·x[n] − 1.3659·x[n−1] + 0.96585·x[n−2] + 1.3659·y[n−1] − 0.9317·y[n−2]</textarea></label><p class="hint">Paste directly from Filter Lab. Accepts ·, ×, *, − and scientific notation. Uses this lab’s sampling rate.</p></div>
+            <div id="filter-coefficient-fields" hidden><label>Numerator · b<textarea id="filter-b" rows="3" spellcheck="false">1</textarea></label><label>Denominator · a<textarea id="filter-a" rows="3" spellcheck="false">1</textarea></label><p class="hint">Coefficients multiply 1, z⁻¹, z⁻², …; a[0] is normalized to 1.</p></div>
+            <button id="preview-filter" class="button secondary full" type="submit">Preview filter</button>
+          </form>
+          <section id="filter-preview" class="preview-box" aria-label="Parsed filter preview" hidden><h3>Review the coefficients</h3><pre id="filter-preview-coefficients"></pre><p id="filter-preview-note" class="hint"></p><div id="filter-rate-choice" hidden><label>Imported sample rate differs<select id="filter-rate-policy"><option value="">Choose how to use this filter…</option><option value="adopt">Adopt the imported rate for the whole lab</option><option value="reinterpret">Keep this lab’s rate; reinterpret coefficients</option></select></label></div><button id="apply-filter" class="button primary full" type="button">Apply & enable filter</button></section>
+          <button id="import-filter" class="text-button import-filter">Import Filter Lab JSON</button><input id="filter-file" type="file" accept=".json,application/json" hidden>
+          <details class="learn-detail"><summary>Precision and frequency</summary><p>JSON retains full precision. A copied, rounded equation uses exactly the numbers you paste. An equation has no sampling rate of its own. Coefficient filters keep their coefficients when you change the lab rate; designed filters retain their requested frequencies in Hz.</p></details>
+        </section>
+        <section id="panel-limits" class="panel" role="tabpanel" aria-labelledby="tab-limits" hidden>
+          <h2>When the actuator runs out</h2><p class="help">Clip the command after the output filter, before it reaches the plant.</p>
+          <label class="checkbox-label"><input id="limits-enabled" type="checkbox">Enable actuator limits</label>
+          <div class="two-fields"><label>Minimum<input id="limit-min" type="number" step="0.1" value="-1"></label><label>Maximum<input id="limit-max" type="number" step="0.1" value="1"></label></div>
+          <label class="checkbox-label"><input id="anti-windup" type="checkbox" checked>Anti-windup · back-calculation</label>
+          <label>Tracking time <span class="input-unit"><input id="tracking-time" type="number" min="0" step="1" value="50"><span>ms</span></span></label>
+          <div class="explain-box"><strong>Watch the integral term.</strong><p>Without anti-windup, error keeps accumulating while the actuator is pinned at its limit. Back-calculation feeds the clipping residual into the integrator to help it recover.</p></div>
+          <details class="learn-detail"><summary>What does “linear stability” mean here?</summary><p>Pole locations and frequency responses describe the loop with clipping inactive. Saturation makes the simulation nonlinear; a bounded, clipped response does not prove that the linear system is stable. Anti-windup corrects the PID integrator, not internal states of arbitrary output filters.</p></details>
+        </section>
+        <div class="experiment-note"><span class="eyebrow">TRY THIS</span><p id="experiment-note"></p></div>
+      </aside>
+      <section class="results" aria-label="Controller analysis">
+        <div class="results-bar"><div><span class="eyebrow">02 / EXPLORE THE RESPONSE</span><h2 id="result-title">PI · 100 ms plant</h2></div><div class="badges"><span id="controller-kind" class="badge">PI</span><span id="stability" class="badge">Linear stability</span><span id="compute-status" class="compute-status" role="status">Calculating…</span></div></div>
+        <div class="view-switch" role="group" aria-label="Response view"><button data-view="controller" aria-pressed="false">Controller only<span>Error → control output</span></button><button data-view="open" aria-pressed="false">Open chain<span>Input → plant output</span></button><button data-view="closed" aria-pressed="true">Closed loop<span>Target → plant output</span></button></div>
+        <section class="card chain-card" aria-label="Interactive control chain"><div class="card-heading"><h3>Follow the signal</h3><span class="plot-caption">CLICK A BLOCK TO EDIT</span></div><div class="chain-scroll"><div class="chain">
+          <span class="chain-terminal" id="chain-input">r</span><span class="arrow">→</span><button data-block="setpoint"><strong>Setpoint</strong><small>filter</small></button><span class="arrow">→</span><span class="summing" title="Reference minus measured output">Σ<span>+ −</span></span><span class="arrow">→</span><button data-block="error"><strong>Error</strong><small>filter</small></button><span class="arrow">→</span><button data-block="pid" class="pid-block"><strong>PID</strong><small>controller</small></button><span class="arrow">→</span><button data-block="output"><strong>Output</strong><small>filter</small></button><span class="arrow">→</span><button data-block="limits"><strong>Limits</strong><small>actuator</small></button><span class="arrow">→</span><button data-block="plant"><strong>Plant</strong><small>G(z)</small></button><span class="arrow">→</span><button data-block="delay"><strong>Delay</strong><small>0 ms</small></button><span class="arrow">→</span><span class="chain-terminal">y</span>
+        </div><div class="feedback-path"><span id="feedback-label">↳ negative feedback</span><span class="feedback-line"></span><button data-block="measurement"><strong>Measurement filter</strong><small>bypassed</small></button><span class="feedback-line"></span><span>↲</span></div></div><p id="view-note" class="plot-footnote"></p></section>
+        <section class="excitation-bar card" aria-label="Input signal">
+          <label>Input<select id="excitation"><option value="step">Step</option><option value="impulse">Unit-sample impulse</option><option value="recovery">Step up → step down</option></select></label><label>Amplitude<input id="amplitude" type="number" step="0.1" value="1"></label><label>Starts at · s<input id="onset" type="number" min="0" step="0.01" value="0.05"></label><div id="return-fields" class="return-fields" hidden><label>Return at · s<input id="return-time" type="number" min="0" step="0.1" value="0.6"></label><label>Return to<input id="return-level" type="number" step="0.1" value="0.3"></label></div>
+        </section>
+        <div id="analysis-warning" class="notice warning" hidden></div>
+        <div class="metrics" aria-label="Response metrics"><div><span>Overshoot</span><strong id="metric-overshoot">—</strong></div><div><span>Rise time</span><strong id="metric-rise">—</strong></div><div><span>Settling time</span><strong id="metric-settling">—</strong></div><div><span id="metric-error-label">Steady-state error</span><strong id="metric-error">—</strong></div></div><p id="metrics-note" class="metrics-note"></p>
+        <div class="plot-grid">
+          <section class="card plot-card"><div class="card-heading"><h3 id="step-title">Step response</h3><span class="plot-caption">OUTPUT</span></div><svg id="step-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Step response; use arrow keys to inspect"></svg><output class="plot-readout" id="step-readout"></output></section>
+          <section class="card plot-card"><div class="card-heading"><h3>Impulse response</h3><span class="plot-caption">ONE SAMPLE · AMPLITUDE A</span></div><svg id="impulse-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Impulse response; use arrow keys to inspect"></svg><output class="plot-readout" id="impulse-readout"></output></section>
+        </div>
+        <section class="comparison-card card"><div class="comparison-top"><label class="checkbox-label"><input id="show-baselines" type="checkbox" checked>Show baseline comparisons</label><button id="save-comparison" class="text-button">+ Save snapshot (0/5)</button></div><div id="curve-legend" class="curve-legend"></div><div id="saved-comparisons" hidden><div class="saved-heading"><h3>Saved experiments</h3><button id="clear-comparisons" class="text-button">Clear saved</button></div><div id="comparison-list"></div></div></section>
+        <div class="plot-grid">
+          <section class="card plot-card"><div class="card-heading"><h3>Control effort</h3><span class="plot-caption">LIVE EXPERIMENT</span></div><svg id="effort-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Controller and actuator signals; use arrow keys to inspect"></svg><output class="plot-readout" id="effort-readout"></output><div class="mini-legend"><span class="blue">● PID output</span><span class="purple">● Filtered command</span><span class="orange">● Applied to plant</span></div></section>
+          <section class="card plot-card"><div class="card-heading"><h3 id="terms-title">P / I / D contributions</h3><span class="plot-caption">LIVE EXPERIMENT</span></div><svg id="terms-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="P I and D contributions; use arrow keys to inspect"></svg><output class="plot-readout" id="terms-readout"></output><div class="mini-legend"><span class="blue">● P</span><span class="green">● I</span><span class="orange">● D</span></div></section>
+          <section class="card plot-card"><div class="card-heading"><h3 id="error-title">Tracking error</h3><span class="plot-caption">LIVE EXPERIMENT</span></div><svg id="error-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Tracking and controller error; use arrow keys to inspect"></svg><output class="plot-readout" id="error-readout"></output></section>
+          <section class="card plot-card"><div class="card-heading"><h3>Linear poles & zeros</h3><span class="plot-caption">z-PLANE</span></div><svg id="pole-plot" viewBox="0 0 600 280" role="img" aria-label="Linear poles and zeros with the unit circle"></svg><p id="pole-note" class="plot-footnote"></p></section>
+          <section class="card plot-card"><div class="card-heading"><h3>Magnitude response</h3><span class="plot-caption">LINEAR · dB</span></div><svg id="magnitude-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Linear magnitude response; use arrow keys to inspect"></svg><output class="plot-readout" id="magnitude-readout"></output></section>
+          <section class="card plot-card"><div class="card-heading"><h3>Phase response</h3><span class="plot-caption">LINEAR · DEGREES</span></div><svg id="phase-plot" viewBox="0 0 600 280" tabindex="0" role="img" aria-label="Linear phase response; use arrow keys to inspect"></svg><output class="plot-readout" id="phase-readout"></output></section>
+        </div>
+        <section class="card math-card"><div class="card-heading"><h3>The model behind the plots</h3><button id="export-csv" class="text-button">Export traces · CSV</button></div><div class="math-grid"><div><p class="eyebrow">CONTROLLER · SAMPLED PARALLEL FORM</p><pre id="pid-equation"></pre></div><div><p class="eyebrow">SIGNAL PATH</p><pre id="chain-equation"></pre></div></div><details class="coefficient-detail"><summary>Full precision plant, filter and response coefficients</summary><pre id="model-coefficients"></pre></details><p class="plot-footnote">Zero initial conditions. A digital impulse is one sample of the selected amplitude, not a unit-area continuous impulse. Frequency plots describe the unsaturated linear model from this view’s input to its output. Hover a plot or focus it and use ← / → to inspect values.</p></section>
+      </section>
+    </div>
+    <footer><span>Controller Lab · Learn through experiments.</span><span>© 2026 koenig-arthur · GPL v3 only · No warranty · <a href="license.html">License</a></span></footer>
+  </main>
+</body>
+</html>
