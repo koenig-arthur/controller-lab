@@ -4,6 +4,11 @@ An interactive, offline workbench for designing and understanding PID controller
 digital filters, plant dynamics and feedback. Built in the style of
 [Filter Lab](https://github.com/koenig-arthur/filter-lab), with compatible filter imports.
 
+[![Controller Lab showing closed-loop step and impulse responses with and without derivative action](docs/images/controller-lab-preview.png)](docs/controller-lab-preview.pdf)
+
+*Adding derivative action (solid blue) reduces the ringing visible in the response without it (dashed green).*
+[View the full PDF preview](docs/controller-lab-preview.pdf).
+
 ## Run locally
 
 Open **index.html** in a modern browser. No build, server, account, CDN or runtime
