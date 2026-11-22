@@ -8,5 +8,5 @@
     "test": "node tests/control.test.cjs",
     "test:browser": "playwright test"
   },
-  "devDependencies": { "@playwright/test": "1.56.1" }
+  "devDependencies": { "@playwright/test": "1.65.1" }
 }
